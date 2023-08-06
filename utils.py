@@ -11,12 +11,35 @@ def format_fullmove(fullmove: int, color: chess.Color, /) -> str:
 
 
 def _pack_bin(value: int, /, *, max_states: int) -> bitarray:
-    """ Return a bitarray representation of ``value`` padded with the appropriate number of 0s given ``max_states``. """
+    """
+    Return a bitarray representation of ``value`` padded with the appropriate number of 0s given ``max_states``.
+    Note that the binary returned is ``value - 1`` in binary, since 000... is a valid state.
+    """
     assert value < max_states, '``value`` must be less than ``max_states``'
 
     if value <= 1:
         return bitarray()
-    return bitarray(format(value, f'0{(max_states-1).bit_length()}b'))
+
+    num_bits = bits_required_for_n_states(max_states)
+    return bitarray(format(value, f'0{num_bits}b'))
+
+
+def _unpack_bin(bits: bitarray, /, *, max_states: int) -> int:
+    """ Return an int representation of the packed ``bits``. """
+    assert bits.endian() == 'big'
+
+    if to_int(bits) == 0:
+        return 1
+
+    return to_int(bits)
+
+
+def to_uint8_bitarray(n: int, /) -> bitarray:
+    """ Return a bitarray representation of ``n`` padded with 0s to be 8 bits long. """
+    assert n < 2 ** 8, '``n`` >= 2 ** 8, cannot fit in a uint8'
+    result = bitarray(format(n, '08b'))
+    assert len(result) == 8
+    return result
 
 
 def to_int(bits: bitarray) -> int:
