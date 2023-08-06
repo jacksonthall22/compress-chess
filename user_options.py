@@ -100,33 +100,50 @@ class MoveEncodingOption(StrEnum):
 class FromSquareEncodingOption(StrEnum):
     occupied_index = 'occupied_index'
     """
-    Encode ``from_square`` based on its index out of the 
+    Encode ``move.from_square`` based on its index out of the 
     truthy bits in ``board.occupied_co[board.turn()]``.
+    """
+
+    mask_legal = 'mask_legal'
+    """
+    Encode ``move.from_square`` based on its index out of truthy bits in the 
+    bitboard that unions all of ``chess.BB_SQUARES[m.from_square]``
+    for legal moves ``m`` on the board.
+    """
+
+    mask_pseudo_legal = 'mask_pseudo_legal'
+    """
+    Encode ``move.from_square`` based on its index out of truthy bits in the
+    bitboard that unions all of ``chess.BB_SQUARES[move.from_square]``
+    for pseudo-legal moves ``m`` on the board. Significantly faster than
+    the ``mask_legal`` option, with slightly worse bit-savings.
     """
 
     square_index = 'square_index'
     """
-    Encode ``from_square`` as a ``0–63`` integer using 6 bits. 
+    Encode ``move.from_square`` as a ``0–63`` integer using 6 bits. 
     """
 
 
 class ToSquareEncodingOption(StrEnum):
-    legal_move_index = 'legal_move_index'
+    mask_piece_square_action_space = 'mask_potential_legal'
     """
-    Generate legal moves for the piece at ``from_square``,
-    sort them with ``move.to_square`` as the key, and encode 
-    the index of the ``to_square`` of the move made in the list.
-    """
-
-    pseudo_legal_move_index = 'pseudo_legal_move_index'
-    """
-    Generate pseudo-legal moves for the piece at ``from_square``, 
-    sort them with ``move.to_square`` as the key, and encode 
-    the index of the ``to_square`` of the move made in the list.
+    Encode ``move.to_square`` using a pre-generated bitboard with truthy bits
+    for all squares that are potential legal moves or captures for the piece at
+    ``from_square``.
     """
 
-    empty_board_move_index = 'empty_board_move_index'
+    mask_legal = 'mask_legal'
     """
-    Treat the board as empty to allow blazing fast, bitboard-based 
-    encoding of ``move.to_square`` at the expense of a few bits per move.
+    Encode ``move.to_square`` based on its index out of truthy bits in the
+    bitboard that unions all of ``chess.BB_SQUARES[move.to_square]``
+    for legal moves ``m`` on the board.
+    """
+
+    mask_pseudo_legal = 'mask_pseudo_legal'
+    """
+    Encode ``move.to_square`` based on its index out of truthy bits in the
+    bitboard that unions all of ``chess.BB_SQUARES[move.to_square]``
+    for pseudo-legal moves ``m`` on the board. Significantly faster than
+    the ``mask_legal`` option, with slightly worse bit-savings.
     """
