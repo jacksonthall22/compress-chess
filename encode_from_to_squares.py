@@ -287,7 +287,7 @@ def decode_moves(bits: bitarray.bitarray,
                  *,
                  mask_legal: bool = False,
                  mask_pseudo_legal: bool = False,
-                 moves: List[chess.Move] = None) -> List[chess.Move]:
+                 debug_moves: List[chess.Move] = None) -> List[chess.Move]:
     """ Return a list of moves decoded from ``bits``. See ``decode_move()``. """
     board = chess.Board(starting_fen)
     while bits:
@@ -295,11 +295,11 @@ def decode_moves(bits: bitarray.bitarray,
                                          board,
                                          mask_legal=mask_legal,
                                          mask_pseudo_legal=mask_pseudo_legal)
-        if moves is not None:
-            if moves[board.ply()] != move:
+        if debug_moves is not None:
+            if debug_moves[board.ply()] != move:
                 move_num = format_fullmove(board.fullmove_number, board.turn)
                 print(f'Error: decoded to {move_num}{move}, '
-                      f'expected {move_num}{moves[board.ply()]}')
+                      f'expected {move_num}{debug_moves[board.ply()]}')
 
         board.push(move)
         bits = bits[num_consumed:]
@@ -346,7 +346,7 @@ if __name__ == '__main__':
                                        starting_fen,
                                        mask_legal=mask_legal,
                                        mask_pseudo_legal=mask_pseudo_legal,
-                                       moves=moves)
+                                       debug_moves=moves)
 
         print(f'Encoded: {encoded}')
         print(f'Decoded: {decoded}')
