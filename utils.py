@@ -1,6 +1,8 @@
-import bitarray
-import chess
 from bitarray import bitarray
+import chess
+
+
+STR_ENCODING = 'utf8'
 
 
 def format_fullmove(fullmove: int, color: chess.Color, /) -> str:
@@ -49,3 +51,9 @@ def bits_required_for_n_states(states: int, /) -> int:
 #     a_shifted = a << shift_amount
 #     result = a_shifted | b
 #     return result
+def encode_str(s: str) -> bytes:
+    return s.encode(STR_ENCODING)
+
+
+def decode_str(encoded_s: bytes) -> str:
+    return encoded_s.decode(STR_ENCODING)
