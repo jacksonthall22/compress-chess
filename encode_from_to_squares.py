@@ -287,14 +287,20 @@ def decode_moves(bits: bitarray.bitarray,
                  *,
                  mask_legal: bool = False,
                  mask_pseudo_legal: bool = False,
-                 debug_moves: List[chess.Move] = None) -> List[chess.Move]:
+                 debug_moves: List[chess.Move] = None) -> Tuple[List[chess.Move], int]:
     """ Return a list of moves decoded from ``bits``. See ``decode_move()``. """
+
+    bits_consumed = 0
+
     board = chess.Board(starting_fen)
     while bits:
         move, num_consumed = decode_move(bits,
                                          board,
                                          mask_legal=mask_legal,
                                          mask_pseudo_legal=mask_pseudo_legal)
+        bits = bits[num_consumed:]
+        bits_consumed += num_consumed
+
         if debug_moves is not None:
             if debug_moves[board.ply()] != move:
                 move_num = format_fullmove(board.fullmove_number, board.turn)
@@ -302,9 +308,8 @@ def decode_moves(bits: bitarray.bitarray,
                       f'expected {move_num}{debug_moves[board.ply()]}')
 
         board.push(move)
-        bits = bits[num_consumed:]
 
-    return board.move_stack
+    return board.move_stack, bits_consumed
 
 
 if __name__ == '__main__':
@@ -342,14 +347,16 @@ if __name__ == '__main__':
                                        starting_fen,
                                        mask_legal=mask_legal,
                                        mask_pseudo_legal=mask_pseudo_legal)
-                decoded = decode_moves(encoded,
-                                       starting_fen,
-                                       mask_legal=mask_legal,
-                                       mask_pseudo_legal=mask_pseudo_legal,
-                                       debug_moves=moves)
+                decoded, consumed = decode_moves(encoded,
+                                                 starting_fen,
+                                                 mask_legal=mask_legal,
+                                                 mask_pseudo_legal=mask_pseudo_legal,
+                                                 debug_moves=moves)
 
         print(f'Encoded: {encoded}')
+        print(f'Encoded length: {len(encoded)}')
         print(f'Decoded: {decoded}')
+        print(f'Consumed: {consumed}')
         print(f'Correct decoding: {moves == decoded}')
         print()
 
