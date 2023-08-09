@@ -1,6 +1,6 @@
 from ContextTimer import ContextTimer
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Iterable
 import bitarray
 import chess
 import chess.pgn
@@ -265,7 +265,7 @@ def decode_move(bits: bitarray.bitarray,
     return chess.Move(from_square, to_square), from_square_bit_len + to_square_bit_len
 
 
-def encode_moves(moves: List[chess.Move],
+def encode_moves(moves: Iterable[chess.Move],
                  starting_fen: str,
                  *,
                  mask_legal: bool = False,
