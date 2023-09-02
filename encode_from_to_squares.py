@@ -34,6 +34,18 @@ BB_PIECE_MOVES: Dict[chess.PieceType, List] = {
     chess.KING: BB_KING_MOVES
 }
 
+PROMOTION_PIECE_TYPE_BB_MAP = {
+    chess.QUEEN: bitarray.bitarray('00'),
+    chess.ROOK: bitarray.bitarray('01'),
+    chess.BISHOP: bitarray.bitarray('10'),
+    chess.KNIGHT: bitarray.bitarray('11'),
+}
+REVERSE_PROMOTION_PIECE_TYPE_BB_MAP = {
+    v.to01(): k for k, v in PROMOTION_PIECE_TYPE_BB_MAP.items()
+}
+BB_PRE_PROMOTION_RANKS = chess.BB_RANK_2 | chess.BB_RANK_7
+BB_PROMOTION_RANKS = chess.BB_RANK_1 | chess.BB_RANK_8
+
 
 def _get_movable_pieces_bb(board: chess.Board,
                            *,
@@ -210,11 +222,23 @@ def decode_to_square(from_square: chess.Square,
     return _decode_occupied_idx(to_int(to_square_bits), actions_bb)
 
 
+def encode_promotion_piece_type(piece_type: chess.PieceType) -> bitarray.bitarray:
+    """ Encode ``piece_type`` into a bitarray representation with 2 bits. """
+    return PROMOTION_PIECE_TYPE_BB_MAP[piece_type]
+
+
+def decode_promotion_piece_type(bits: bitarray.bitarray) -> Tuple[chess.PieceType, int]:
+    """ Decode the first 2 bits of ``bits`` into a ``chess.PieceType``. """
+    # TODO micro-optimize (loop through k, v in PROMOTION_PIECE_TYPE_BB_MAP.items() and check if bits == v ?)
+    return REVERSE_PROMOTION_PIECE_TYPE_BB_MAP[bits[:2].to01()], 2
+
+
 def encode_move(move: chess.Move,
                 board: chess.Board,
                 *,
                 mask_legal: bool = False,
-                mask_pseudo_legal: bool = False) -> bitarray.bitarray:
+                mask_pseudo_legal: bool = False,
+                debug: bool = False) -> bitarray.bitarray:
     """
     Encode ``move`` into a bitarray representation by concatenating the encodings of its ``from_square``
     and ``to_square``. See ``encode_from_square()`` and ``encode_to_square()``.
@@ -227,85 +251,147 @@ def encode_move(move: chess.Move,
                                      board,
                                      mask_legal=mask_legal,
                                      mask_pseudo_legal=mask_pseudo_legal)
-    return encoded_from_sq + encoded_to_sq
+
+    if debug:
+        print(f'{encoded_from_sq.to01()}->{encoded_to_sq.to01()}', end='')
+
+    bits = encoded_from_sq + encoded_to_sq
+
+    if move.promotion:
+        promotion_bits = encode_promotion_piece_type(move.promotion)
+        bits += promotion_bits
+
+        if debug:
+            print(f'={promotion_bits.to01()}', end='')
+
+    if debug:
+        print(f' ({move.uci()})', end='')
+
+    return bits
 
 
 def decode_move(bits: bitarray.bitarray,
                 board: chess.Board,
                 *,
                 mask_legal: bool = False,
-                mask_pseudo_legal: bool = False) -> Tuple[chess.Move, int]:
+                mask_pseudo_legal: bool = False,
+                debug: bool = False) -> Tuple[chess.Move, int]:
     """
     Decode the first bits in ``bits`` into a move by decoding ``from_square`` and ``to_square`` based on
     ``board``. Return the decoded move and the number of bits consumed to decode it. See ``decode_from_square()``
     and ``decode_to_square()``.
     """
+
+    total_consumed = 0
+
+    # From square
     movable_pieces_bb = _get_movable_pieces_bb(board,
                                                mask_legal=mask_legal,
                                                mask_pseudo_legal=mask_pseudo_legal)
     from_square_bit_len = bits_required_for_n_states(movable_pieces_bb.bit_count())
-
     from_square = decode_from_square(bits[:from_square_bit_len],
                                      board,
                                      mask_legal=mask_legal,
                                      mask_pseudo_legal=mask_pseudo_legal)
+    if debug:
+        print(f'{bits[:from_square_bit_len].to01()}->', end='')
+    bits = bits[from_square_bit_len:]
+    total_consumed += from_square_bit_len
 
+    # To square
     actions_bb = _get_actions_bb(from_square,
                                  board,
                                  mask_legal=mask_legal,
                                  mask_pseudo_legal=mask_pseudo_legal)
-
     to_square_bit_len = bits_required_for_n_states(actions_bb.bit_count())
     to_square = decode_to_square(from_square,
-                                 bits[from_square_bit_len:from_square_bit_len + to_square_bit_len],
+                                 bits[:to_square_bit_len],
                                  board,
                                  mask_legal=mask_legal,
                                  mask_pseudo_legal=mask_pseudo_legal)
+    if debug:
+        print(f'{bits[:to_square_bit_len].to01()}', end='')
+    bits = bits[to_square_bit_len:]
+    total_consumed += to_square_bit_len
 
-    return chess.Move(from_square, to_square), from_square_bit_len + to_square_bit_len
+    move = chess.Move(from_square, to_square)
+
+    # Promotion
+    if board.piece_type_at(from_square) == chess.PAWN \
+            and chess.BB_SQUARES[from_square] & BB_PRE_PROMOTION_RANKS \
+            and chess.BB_SQUARES[to_square] & BB_PROMOTION_RANKS:
+        promotion_piece_type, promotion_consumed = decode_promotion_piece_type(bits[:2])
+        move.promotion = promotion_piece_type
+        if debug:
+            print(f'={bits[:promotion_consumed].to01()}', end='')
+        bits = bits[promotion_consumed:]
+        total_consumed += promotion_consumed
+
+    if debug:
+        print(f' ({move.uci()})', end='')
+
+    return move, total_consumed
 
 
 def encode_moves(moves: Iterable[chess.Move],
                  starting_fen: str,
                  *,
                  mask_legal: bool = False,
-                 mask_pseudo_legal: bool = False) -> bitarray.bitarray:
+                 mask_pseudo_legal: bool = False,
+                 debug: bool = False) -> bitarray.bitarray:
     """ Return a concatenation of each encoded move in ``moves``. See ``encode_move()``. """
     encoded_moves = bitarray.bitarray()
     board = chess.Board(starting_fen)
     for move in moves:
+        if debug:
+            print('\t', end='')
+
         encoded_moves += encode_move(move,
                                      board,
                                      mask_legal=mask_legal,
-                                     mask_pseudo_legal=mask_pseudo_legal)
+                                     mask_pseudo_legal=mask_pseudo_legal,
+                                     debug=debug)
+
+        if debug:
+            print('\n', end='')
+
         board.push(move)
     return encoded_moves
 
 
 def decode_moves(bits: bitarray.bitarray,
                  starting_fen: str,
+                 game_plies: int,
                  *,
                  mask_legal: bool = False,
                  mask_pseudo_legal: bool = False,
+                 debug: bool = False,
                  debug_moves: List[chess.Move] = None) -> Tuple[List[chess.Move], int]:
     """ Return a list of moves decoded from ``bits``. See ``decode_move()``. """
 
     bits_consumed = 0
 
     board = chess.Board(starting_fen)
-    while bits:
+    for _ in range(game_plies):
+        if debug:
+            print('\t', end='')
+
         move, num_consumed = decode_move(bits,
                                          board,
                                          mask_legal=mask_legal,
-                                         mask_pseudo_legal=mask_pseudo_legal)
+                                         mask_pseudo_legal=mask_pseudo_legal,
+                                         debug=debug)
         bits = bits[num_consumed:]
         bits_consumed += num_consumed
 
         if debug_moves is not None:
             if debug_moves[board.ply()] != move:
                 move_num = format_fullmove(board.fullmove_number, board.turn)
-                print(f'Error: decoded to {move_num}{move}, '
+                print(f' ERROR: decoded to {move_num}{move}, '
                       f'expected {move_num}{debug_moves[board.ply()]}')
+
+        if debug:
+            print('\n', end='')
 
         board.push(move)
 
@@ -313,26 +399,37 @@ def decode_moves(bits: bitarray.bitarray,
 
 
 if __name__ == '__main__':
-    pgn = '''[Event "Casual Bullet game"]
-[Site "https://lichess.org/Y2hanlPl"]
-[Date "2022.07.01"]
-[White "Goldy35"]
-[Black "penguingm1"]
-[Result "0-1"]
-[UTCDate "2022.07.01"]
-[UTCTime "21:10:02"]
-[WhiteElo "1133"]
-[BlackElo "2481"]
-[BlackTitle "GM"]
-[Variant "Standard"]
-[TimeControl "60+0"]
-[ECO "D31"]
-[Opening "Queen's Gambit Declined: Charousek Variation"]
-[Termination "Time forfeit"]
-[Annotator "lichess.org"]
+    pgn = '''[Event "FIDE World Cup 2023"]
+[Site "Baku AZE"]
+[Date "2023.07.30"]
+[Round "1.1"]
+[White "Cheparinov, Ivan"]
+[Black "Alhassadi, Yousef A."]
+[Result "1-0"]
+[WhiteTitle "GM"]
+[WhiteElo "2663"]
+[BlackElo "2030"]
+[ECO "D30"]
+[Opening "Queen's gambit declined"]
+[WhiteFideId "2905540"]
+[BlackFideId "9204725"]
+[EventDate "2023.07.30"]
+[EventType "k.o."]
 
-1. d4 d5 2. c4 e6 3. Nc3 Be7 { D31 Queen's Gambit Declined: Charousek Variation } 4. Nf3 Nf6 5. cxd5 exd5 6. Bf4 c6 7. e3 Bf5 8. Be2 Nbd7 9. O-O O-O 10. h3 h6 11. Rc1 Re8 12. Re1 Nf8 13. e4?? { (0.13 → -2.18) Blunder. Ne5 was best. } (13. Ne5 Bd6 14. Bd3 Bxd3 15. Nxd3 Bxf4 16. Nxf4 Ne6 17. Nd3 a5 18. a3 Re7 19. b4 Nc7) 13... Nxe4 14. Bd3 Nxc3 15. bxc3 Bxd3 16. Qxd3 Ne6?! { (-1.70 → -0.85) Inaccuracy. Bf6 was best. } (16... Bf6 17. Be5) 17. Bh2?! { (-0.85 → -1.93) Inaccuracy. Rxe6 was best. } (17. Rxe6 fxe6) 17... Bd6 18. Bxd6 Qxd6 19. Ne5 Re7 20. Re3 Rae8 21. Rce1 Nf4?! { (-2.06 → -1.07) Inaccuracy. Ng5 was best. } (21... Ng5) 22. Qf5 Ne6 23. f4?! { (-1.43 → -2.50) Inaccuracy. h4 was best. } (23. h4 Nf8) 23... Nf8 24. Qd3 f6 25. Nxc6?? { (-2.82 → -7.78) Blunder. Nf3 was best. } (25. Nf3) 25... bxc6 26. Rxe7 Rxe7 27. Rxe7 Qxe7 { Black wins on time. } 0-1'''
+1. d4 d5 2. c4 e6 3. Nf3 c5 4. cxd5 exd5 5. Bg5 Nf6 6. Nc3 Be6 7. a3 Nc6 8. e3
+Be7 9. dxc5 Bxc5 10. Bb5 O-O 11. O-O Be7 12. Rc1 Rc8 13. Bh4 a6 14. Bxc6 bxc6
+15. Qd3 Qb6 16. Rc2 Rfd8 17. Rfc1 Qa5 18. Nd4 c5 19. Nxe6 fxe6 20. e4 d4 21. Ne2
+Qb5 22. Rc4 Qb7 23. h3 Kf7 24. e5 Qe4 25. Qxe4 Nxe4 26. Bxe7 Kxe7 27. f3 Nd2 28.
+Rxc5 Rxc5 29. Rxc5 Rd7 30. Kf2 Nb3 31. Rc4 d3 32. Nc3 d2 33. Nd1 Nc1 34. Ke3 Nd3
+35. Rd4 Rxd4 36. Kxd4 Ne1 37. Ke3 Nxg2+ 38. Kxd2 Kd7 39. Nf2 Kc6 40. Nd3 a5 41.
+b4 axb4 42. Nxb4+ Kb5 43. Nd3 g5 44. Ke2 Nh4 45. f4 h6 46. fxg5 hxg5 47. Ke3 Kc4
+48. Ke4 Nf5 49. a4 Ng3+ 50. Kf3 Nf5 51. a5 Kxd3 52. a6 Nd4+ 53. Kg4 Nc6 54. Kxg5
+Ke4 55. h4 Kxe5 56. h5 1-0'''
     game = chess.pgn.read_game(io.StringIO(pgn))
+
+    ITERS = 1000
+    DEBUG_ENCODE = True
+    DEBUG_DECODE = True
 
     moves = list(game.mainline_moves())
     starting_fen = game.board().fen()
@@ -342,15 +439,18 @@ if __name__ == '__main__':
     for mask_legal, mask_pseudo_legal in ((False, False), (False, True), (True, True)):
         print(f'mask_legal: {mask_legal}, mask_pseudo_legal: {mask_pseudo_legal}')
         with ContextTimer(5) as t:
-            for _ in range(1000):
+            for _ in range(ITERS):
                 encoded = encode_moves(moves,
                                        starting_fen,
                                        mask_legal=mask_legal,
-                                       mask_pseudo_legal=mask_pseudo_legal)
+                                       mask_pseudo_legal=mask_pseudo_legal,
+                                       debug=DEBUG_ENCODE)
                 decoded, consumed = decode_moves(encoded,
                                                  starting_fen,
+                                                 len(moves),
                                                  mask_legal=mask_legal,
                                                  mask_pseudo_legal=mask_pseudo_legal,
+                                                 debug=DEBUG_DECODE,
                                                  debug_moves=moves)
 
         print(f'Encoded: {encoded}')
